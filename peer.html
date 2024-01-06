@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Cheap Chat</title>
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <style>
+        body {
+            font-size: 1.2rem;
+            font-family: Sans-serif;
+        }
+        div.msg {
+            border-radius: 4px;
+            border-width: 1px;
+            border-style: solid;
+            border-color: #666;
+            margin: 2px;
+            padding: 2px;
+        }
+        div.messages {
+            margin: 6px;
+            border-width: 1px; 
+            overflow-y: scroll; 
+            max-height:calc(100vh - 300px);
+        }
+        button {
+            font-size: 1.2rem;
+            cursor: pointer;
+            padding: .5rem 1rem;
+            line-height: 1.2;
+            border-radius: .3rem;
+            box-shadow: none;
+            border: 0;
+            color: #111;
+            background-color: #ccc;
+        }
+        button:active{
+            background-color: #aaa;
+        }
+        button.primary {
+            color: #fff;
+            background-color: #007bff;
+        }
+        button.primary:active{
+            background-color: #006bee;
+        }
+        input {
+            height: auto;
+            padding: 10px;
+            min-width: 200px;
+            padding: .375rem .75rem;
+            font-size: 1.2rem;
+            line-height: 1.5;
+            color: #495057;
+            background-color: #fff;
+            background-clip: padding-box;
+            border: 1px solid #ced4da;
+            border-radius: .25rem;
+        }
+    </style>
+</head>
+<body>
+    <h1>Cheap Chat</h1>
+    <div id="connect_window" style="display: none;">
+        <label for="username">You:</label>
+        <input type="text" id="username">
+        <button id="randomize">Randomize</button><br><br>
+        <button id="start_btn" class="primary">Start</button><br><br>
+    </div>
+    <div id="main_window" style="display: none;">
+        <button id="copyLink">Copy Invite Link</button>
+        <div class="messages" id="conversation"></div>
+        <input type="text" id="message" name="message" style="width: 50%;">
+        <button class="primary" id="send">Send Message</button>
+    </div>
+
+    <script>
+
+        /*
+            TODO:
+                peer configuration dictionary
+                connections -> dictionary by peer id?
+                function to purge closed connections
+                gray out send when no connections
+                save name in connections list
+                loading icon
+                participants list
+        
+        */
+
+        function uuidv4() {
+            // https://stackoverflow.com/questions/105034/how-do-i-create-a-guid-uuid
+            return "10000000-1000-4000-8000-100000000000".replace(/[018]/g, c =>
+                (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
+            );
+        }
+
+        function choose(choices) {
+            var index = Math.floor(Math.random() * choices.length);
+            return choices[index];
+        }
+
+        function random_name() {
+
+            // nouns
+            var interestingObjects = ['apple', 'banana', 'cherry', 'date', 'elderberry', 'fig', 'grape', 'honeydew', 'iceberg lettuce', 'jackfruit', 'kiwi', 'lemon', 'mango', 'nectarine', 'orange', 'pineapple', 'quince', 'raspberry', 'strawberry', 'tangerine', 'ugli fruit', 'victoria plum', 'watermelon', 'xigua', 'yellow passion fruit', 'zucchini'];
+            var animals = ['aardvark', 'baboon', 'camel', 'dingo', 'elephant', 'flamingo', 'gorilla', 'hippopotamus', 'iguana', 'jaguar', 'kangaroo', 'lion', 'mongoose', 'newt', 'octopus', 'penguin', 'quokka', 'rhinoceros', 'sloth', 'tiger', 'unicorn', 'vulture', 'walrus', 'x-ray tetra', 'yak', 'zebra'];
+            var places = ['Amsterdam', 'Berlin', 'Copenhagen', 'Dublin', 'Edinburgh', 'Florence', 'Geneva', 'Helsinki', 'Istanbul', 'Jerusalem', 'Kyoto', 'Lisbon', 'Madrid', 'Naples', 'Oslo', 'Paris', 'Quebec City', 'Rome', 'Stockholm', 'Tokyo', 'Utrecht', 'Vienna', 'Warsaw', 'Xiamen', 'York', 'Zurich'];
+            var foods = ['apple pie', 'banana bread', 'chocolate cake', 'date squares', 'elderberry wine', 'figgy pudding', 'grape jelly', 'honeydew sorbet', 'iceberg lettuce salad', 'jackfruit curry', 'kiwi tart', 'lemon meringue pie', 'mango lassi', 'nectarine cobbler', 'orange chicken', 'pineapple upside-down cake', 'quince jam', 'raspberry trifle', 'strawberry shortcake', 'tangerine sorbet', 'ugli fruit smoothie', 'victoria sponge', 'watermelon salad', 'xigua juice', 'yellow passionfruit sorbet', 'zucchini bread'];
+            var vehicles = ['airplane', 'bicycle', 'car', 'dinghy', 'elephant', 'ferry', 'glider', 'helicopter', 'icebreaker', 'jet ski', 'kayak', 'limousine', 'motorcycle', 'narrowboat', 'outrigger canoe', 'paraglider', 'quad bike', 'rowboat', 'scooter', 'tram', 'unicycle', 'van', 'wagon', 'x-wing', 'yacht', 'zeppelin'];
+            var plants = ['apple tree', 'banana plant', 'cherry tree', 'date palm', 'elderberry bush', 'fig tree', 'grape vine', 'honeydew melon plant', 'iceberg lettuce plant', 'jackfruit tree', 'kiwi plant', 'lemon tree', 'mango tree', 'nectarine tree', 'orange tree', 'pineapple plant', 'quince tree', 'raspberry bush', 'strawberry plant', 'tangerine tree', 'ugli fruit tree', 'victoria plum tree', 'watermelon plant', 'xigua plant', 'yellow passionfruit vine', 'zucchini plant'];
+            var toys = ['action figure', 'barbie doll', 'cabbage patch kid', 'dingbat', 'etch a sketch', 'gameboy', 'hula hoop', 'ipod', 'jack-in-the-box', 'kaleidoscope', 'lego', 'monopoly', 'nintendo', 'operation', 'pogo stick', 'cube', 'slinky', 'tamagotchi', 'uno', 'view-master', 'wii', 'xbox', 'yo-yo', 'zhu zhu pet'];
+            var musicalInstruments = ['accordion', 'banjo', 'cello', 'drum', 'electric guitar', 'flute', 'guitar', 'harmonica', 'instrument', 'jukebox', 'keyboard', 'lute', 'mandolin', 'nose flute', 'oboe', 'piano', 'quena', 'recorder', 'saxophone', 'trumpet', 'ukulele', 'violin', 'whistle', 'xylophone', 'yueqin', 'zither'];
+            var moreNouns = ['cat','kitty','lion','feline','kitten','llama','table','mountain','rock','tree','oak','pegasus','centar'];
+            var nouns = interestingObjects.concat(places, foods, vehicles, plants, toys, musicalInstruments, moreNouns);
+
+            // adjectives
+            var colors = ['red', 'orange', 'yellow', 'green', 'blue', 'indigo', 'violet', 'black', 'white', 'pink', 'brown', 'gray', 'purple', 'teal', 'turquoise', 'magenta', 'lime', 'gold', 'silver', 'bronze', 'maroon', 'olive', 'peach', 'lavender', 'cyan', 'tan', 'beige', 'navy', 'ruby', 'emerald', 'sapphire', 'amber', 'scarlet', 'crimson', 'fuchsia', 'aquamarine', 'chartreuse', 'azure', 'chocolate', 'coral', 'ivory', 'khaki', 'plum', 'salmon', 'taupe', 'teal', 'vermilion', 'wisteria', 'zinnwaldite'];
+            var flavors = ['sweet', 'sour', 'salty', 'bitter', 'umami', 'spicy', 'savory', 'tangy', 'zesty', 'pungent', 'peppery', 'minty', 'fruity', 'citrus', 'earthy', 'nutty', 'creamy', 'buttery', 'vanilla', 'chocolate', 'caramel', 'coffee', 'toasty', 'smoky', 'herbal', 'floral', 'woody', 'berry', 'melon', 'tropical', 'stone fruit', 'apple', 'grape', 'banana', 'peach', 'pineapple', 'lemon', 'lime', 'orange', 'strawberry', 'raspberry', 'blueberry', 'blackberry', 'cherry', 'kiwi', 'mango', 'pomegranate', 'coconut', 'honey', 'maple', 'cinnamon', 'nutmeg', 'anise', 'licorice', 'ginger', 'garlic', 'onion', 'pepper', 'mustard', 'vinegar', 'wine', 'cheese', 'yogurt', 'milk', 'cream', 'egg', 'meat', 'fish', 'chicken', 'pork', 'beef', 'lamb', 'duck', 'turkey', 'bacon', 'ham', 'sausage', 'shellfish', 'crab', 'lobster', 'shrimp', 'clam', 'oyster', 'mussel', 'scallop', 'squid', 'octopus', 'caviar', 'anchovy', 'sardine', 'tuna', 'salmon', 'mackerel', 'herring', 'trout', 'cod', 'halibut', 'flounder', 'sole', 'bass', 'swordfish', 'mahimahi', 'shark', 'catfish', 'snapper', 'grouper', 'tilapia', 'perch', 'walleye', 'pike', 'carp', 'sturgeon', 'eel', 'smelt', 'haddock', 'pollock', 'rockfish', 'marlin', 'sailfish', 'bluefish', 'mullet', 'drum', 'tarpon', 'bonefish', 'barracuda', 'trevally', 'mahi', 'wahoo', 'tigerfish', 'butterfish', 'ladyfish', 'jack', 'milkfish', 'pompano', 'amberjack', 'hake', 'cobia', 'kingfish', 'tilefish', 'gurnard', 'lingcod', 'monkfish', 'moonfish', 'opah', 'orange roughy', 'parrotfish', 'patagonian toothfish', 'pout', 'redfish', 'red snapper', 'rosefish', 'roughy', 'scorpionfish', 'sea bass', 'seabream', 'shad', 'skipjack', 'snook', 'spadefish', 'spearfish', 'striped bass', 'sturgeon', 'swordfish', 'tilefish', 'triggerfish', 'tuna', 'wahoo', 'whitefish', 'white seabass', 'yellowfin tuna', 'yellowtail'];
+            var funnyAdjectives = ['absurd', 'hilarious', 'silly', 'witty', 'amusing', 'goofy', 'zany', 'comical', 'funny', 'laughable', 'ludicrous', 'ridiculous', 'whimsical', 'droll', 'facetious', 'farce', 'jocular', 'jolly', 'jovial', 'mirthful', 'nonsensical', 'screwy', 'slapstick', 'snicker', 'sophomoric', 'tickling', 'uproarious', 'wacky'];
+            var interestingAdjectives = ['amazing', 'astonishing', 'astounding', 'awe-inspiring', 'awesome', 'brilliant', 'breathtaking', 'captivating', 'charming', 'compelling', 'curious', 'dazzling', 'delightful', 'dramatic', 'electrifying', 'enchanting', 'enthralling', 'exceptional', 'exciting', 'extraordinary', 'fascinating', 'impressive', 'incredible', 'inspiring', 'intriguing', 'magnificent', 'marvelous', 'mesmerizing', 'mysterious', 'remarkable', 'riveting', 'sensational', 'spectacular', 'spellbinding', 'stunning', 'surprising', 'unbelievable', 'unforgettable', 'wonderful'];
+            var moreAdjectives = ['fluffy','mini','mega','super','hairy','quick','studley','slick','awesome','brainy','brown','angsty','blue','best','better','bold','cool','cunning','catlike','catastrophic','campy','curt','diddly','diligent','disasterous','dim','dasterdly','delightful','damp','dusty','dorky','dangerous','enlightened','elated','empathic','empathetic','empty','early','elderly','eagar','endangered','fast','furocious','feline','friendly','functional','fractional','fearless','far-fetched','fridgid','ghostly','great','ghastly','gassy','glorrious','gangerous','gargantuaous','gelatinous','golden','goofy','geodesic','heavenly','half-hearted','humble','hasty','hungry','interesting','intreguing','indisputable','imperfect','indigo','reddish','greenish','yellow','jolly','jagged','jumbled','blackened'];
+            var adjectives = colors.concat(flavors, funnyAdjectives, interestingAdjectives, moreAdjectives);
+
+            // return choose(adjectives) + ' ' + choose(nouns);
+            return choose(nouns);
+        }
+
+        // username
+        function set_username(new_name) {
+            console.log('Changing username to:', new_name)
+            document.getElementById('username').value = new_name;
+        }
+        function get_username(){
+            return document.getElementById('username').value
+        }
+        set_username(random_name());
+
+        var src_id = uuidv4();
+        
+        // Create a new Peer with our application key
+        console.log('self defined src_id:', src_id);
+        var connections = [];
+        var peer = new Peer(src_id, {debug:0});
+
+
+        // Once the connection to the Peer server is open...
+        peer.on('open', function(id) {
+            src_id = id;
+	        console.log('My peer ID is: ' + src_id);
+            console.log(window.location.href.split(/[?#]/)[0] + '?id=' + src_id);
+
+            // do we have a destination ID to connect with?  check for URL parameter
+            var urlParams = new URLSearchParams(window.location.search);
+            var dst_id = urlParams.get('id');
+            if(dst_id) {
+                console.log("Automatically connecting to:", dst_id);
+                connect2peer(dst_id);
+            }
+        });
+
+        // handle any incomming connection
+        peer.on('connection', function(conn) {
+            console.log('Connecting from', conn.peer);
+            init_connection(conn);
+        });
+
+        peer.on('close', function() {
+            console.log('Peer Closed.');
+        });
+        peer.on('disconnected', function() {
+            console.log('Peer Disconnected.');
+        });
+        peer.on('error', function(err) {
+            console.log('Peer Error:', err);
+        });
+
+        // make outgoing connection
+        function connect2peer(id) {
+            console.log('connecting to', id);
+            var conn = peer.connect(id);
+            init_connection(conn);
+        }
+
+        function init_connection(conn) {
+            conn.on('open', function() {
+                // Connection is established, now we can send a message
+                console.log('Connection established.');
+                this.send("greetz!");
+
+                if(connections.length > 1) {
+                    // share participants list with new participant
+                    console.log('Sharing participant list...');
+                    let participants = [];
+                    for(const conn of connections) {
+                        participants.push(conn.peer);
+                    }
+                    console.log(participants);
+                    conn.send({participants:participants})
+                }
+            });
+            conn.on('data', function(data) {
+                console.log('Received:', data);
+                if(data.msg) {
+                    append_msg(data, false);
+                } else if (data.participants) {
+                    add_participants(data);
+                }
+            });
+            conn.on('close', function() {
+                console.log('Connection closed.');
+            });
+            conn.on('error', function(err) {
+                console.log('Connection Error:', err);
+            });
+            connections.push(conn);
+        }
+
+        function id_exists(id) {
+            if(id == src_id){
+                return true;
+            }
+            for(const conn of connections) {
+                if(id == conn.peer) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        function add_participants(data) {
+            for(const dst_id of data.participants) {
+                if(!id_exists(dst_id)) {
+                    connect2peer(dst_id);
+                }
+            }
+        }
+        
+        function append_msg(msg_data, isyou) {
+            name = msg_data.name;
+            message = msg_data.msg;
+            if(name && message){
+                const div = document.createElement('div');
+                div.className = 'msg';
+                div.innerText = name + ': '+message;
+                if(isyou){
+                    div.style.backgroundColor = '#ccf';
+                    div.style.borderColor = '#bbe';
+                } else {
+                    div.style.backgroundColor = '#cfc';
+                    div.style.borderColor = '#beb'
+                }
+                var conversation = document.getElementById('conversation');
+                var autoscroll = conversation.scrollHeight - conversation.scrollTop - conversation.offsetHeight < 5;
+                conversation.appendChild(div);
+                if(autoscroll) {
+                    conversation.scrollTop = conversation.scrollHeight;  // scroll to bottom
+                }
+            }
+        }
+
+        // Send a message
+        document.getElementById('send').addEventListener('click', function() {
+            if(connections.length > 0) {
+                var message = document.getElementById('message').value;
+                var msg_data = {
+                    name:get_username(), 
+                    msg:message,
+                }
+                console.log("Sending message...");
+                for(const conn of connections) {
+                    conn.send(msg_data);
+                }
+                append_msg(msg_data, true);
+                console.log('Sent.')
+                document.getElementById('message').value = '';
+            }
+            else {
+                console.log("No connection, unable to send.")
+            }
+        });
+
+        document.getElementById('message').addEventListener('keydown', function(e) {
+             /* Enter key is 13 */ 
+            if(e.keyCode == 13) {
+                document.getElementById('send').click();
+            }
+        });
+
+        // randomize name
+        document.getElementById('randomize').addEventListener('click', function() {
+            var new_name = random_name();
+            set_username(new_name);
+        });
+
+        document.getElementById('start_btn').addEventListener('click', function() {
+            document.getElementById("connect_window").style.display = "none";
+            document.getElementById("main_window").style.display = "block";
+        });
+
+        document.getElementById('copyLink').addEventListener('click', function() {
+            let sharelink = window.location.href.split(/[?#]/)[0] + '?id=' + src_id;
+            navigator.clipboard.writeText(sharelink);
+        });
+
+        window.onload = function() {
+            
+            // do we have a destination ID to connect with?  check for URL parameter
+            var urlParams = new URLSearchParams(window.location.search);
+            var dst_id = urlParams.get('id');
+            if(dst_id) {
+                // change start button to say join
+                document.getElementById("start_btn").innerText = "Join"
+            }
+
+            document.getElementById("connect_window").style.display = "block";
+            document.getElementById("main_window").style.display = "none";
+        }
+
+    </script>
+</body>
+</html>
