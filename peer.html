@@ -87,6 +87,11 @@
         
         */
 
+        // Peer.js configuration - see https://peerjs.com/docs/#peer
+        const peer_config = {
+            debug: 0,
+        }
+
         function uuidv4() {
             // https://stackoverflow.com/questions/105034/how-do-i-create-a-guid-uuid
             return "10000000-1000-4000-8000-100000000000".replace(/[018]/g, c =>
@@ -140,7 +145,7 @@
         // Create a new Peer with our application key
         console.log('self defined src_id:', src_id);
         var connections = [];
-        var peer = new Peer(src_id, {debug:0});
+        var peer = new Peer(src_id, peer_config);
 
 
         // Once the connection to the Peer server is open...
