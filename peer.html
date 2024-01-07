@@ -77,19 +77,20 @@
 
         /*
             TODO:
-                peer configuration dictionary
-                connections -> dictionary by peer id?
                 function to purge closed connections
                 gray out send when no connections
                 save name in connections list
                 loading icon
-                participants list
-        
+                display participants list
         */
 
         // Peer.js configuration - see https://peerjs.com/docs/#peer
-        const peer_config = {
-            debug: 0,
+        const peer_options = {
+            debug: 2,
+        }
+        const peer_connect_options = {
+            reliable: true,
+            metadata: {username: 'unknown'},
         }
 
         function uuidv4() {
@@ -134,6 +135,7 @@
         function set_username(new_name) {
             console.log('Changing username to:', new_name)
             document.getElementById('username').value = new_name;
+            peer_connect_options.metadata.username = new_name;
         }
         function get_username(){
             return document.getElementById('username').value
@@ -144,8 +146,8 @@
         
         // Create a new Peer with our application key
         console.log('self defined src_id:', src_id);
-        var connections = [];
-        var peer = new Peer(src_id, peer_config);
+        var connections = {};  // map ID to connection data
+        var peer = new Peer(src_id, peer_options);
 
 
         // Once the connection to the Peer server is open...
@@ -182,7 +184,7 @@
         // make outgoing connection
         function connect2peer(id) {
             console.log('connecting to', id);
-            var conn = peer.connect(id);
+            var conn = peer.connect(id, peer_connect_options);
             init_connection(conn);
         }
 
@@ -192,12 +194,12 @@
                 console.log('Connection established.');
                 this.send("greetz!");
 
-                if(connections.length > 1) {
+                if(Object.keys(connections).length > 1) {
                     // share participants list with new participant
                     console.log('Sharing participant list...');
                     let participants = [];
-                    for(const conn of connections) {
-                        participants.push(conn.peer);
+                    for (const [key, value] of Object.entries(connections)) {
+                        participants.push(value.conn.peer);
                     }
                     console.log(participants);
                     conn.send({participants:participants})
@@ -217,24 +219,24 @@
             conn.on('error', function(err) {
                 console.log('Connection Error:', err);
             });
-            connections.push(conn);
+            connections[conn.peer] = {conn:conn, username:conn.metadata.username};
         }
 
         function id_exists(id) {
             if(id == src_id){
                 return true;
             }
-            for(const conn of connections) {
-                if(id == conn.peer) {
-                    return true;
-                }
+            if(id in connections){
+                return true;
             }
             return false;
         }
 
         function add_participants(data) {
             for(const dst_id of data.participants) {
+                console.log('participant:', dst_id);
                 if(!id_exists(dst_id)) {
+                    console.log('connecting to another particpant...')
                     connect2peer(dst_id);
                 }
             }
@@ -265,15 +267,15 @@
 
         // Send a message
         document.getElementById('send').addEventListener('click', function() {
-            if(connections.length > 0) {
+            if(Object.keys(connections).length > 0) {
                 var message = document.getElementById('message').value;
                 var msg_data = {
                     name:get_username(), 
                     msg:message,
                 }
                 console.log("Sending message...");
-                for(const conn of connections) {
-                    conn.send(msg_data);
+                for (const [key, value] of Object.entries(connections)) {
+                    value.conn.send(msg_data);
                 }
                 append_msg(msg_data, true);
                 console.log('Sent.')
