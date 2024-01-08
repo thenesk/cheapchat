@@ -77,7 +77,6 @@
 
         /*
             TODO:
-                function to purge closed connections
                 gray out send when no connections
                 save name in connections list
                 loading icon
@@ -142,50 +141,66 @@
         }
         set_username(random_name());
 
-        var src_id = uuidv4();
-        
-        // Create a new Peer with our application key
-        console.log('self defined src_id:', src_id);
         var connections = {};  // map ID to connection data
-        var peer = new Peer(src_id, peer_options);
+        var src_id = null;
+        var peer = null;
+        
+        function init_peer() {
+            src_id = uuidv4();
+            peer = new Peer(src_id, peer_options);
 
+            // Once the connection to the Peer server is open...
+            peer.on('open', function(id) {
+                src_id = id;
+                console.log('My peer ID is: ' + src_id);
+                console.log(window.location.href.split(/[?#]/)[0] + '?id=' + src_id);
 
-        // Once the connection to the Peer server is open...
-        peer.on('open', function(id) {
-            src_id = id;
-	        console.log('My peer ID is: ' + src_id);
-            console.log(window.location.href.split(/[?#]/)[0] + '?id=' + src_id);
+                // do we have a destination ID to connect with?  check for URL parameter
+                var urlParams = new URLSearchParams(window.location.search);
+                var dst_id = urlParams.get('id');
+                if(dst_id) {
+                    console.log("Automatically connecting to:", dst_id);
+                    connect2peer(dst_id);
+                }
+            });
 
-            // do we have a destination ID to connect with?  check for URL parameter
-            var urlParams = new URLSearchParams(window.location.search);
-            var dst_id = urlParams.get('id');
-            if(dst_id) {
-                console.log("Automatically connecting to:", dst_id);
-                connect2peer(dst_id);
-            }
-        });
+            // handle any incomming connection
+            peer.on('connection', function(conn) {
+                console.log('Connecting from', conn.peer);
+                init_connection(conn);
+            });
 
-        // handle any incomming connection
-        peer.on('connection', function(conn) {
-            console.log('Connecting from', conn.peer);
-            init_connection(conn);
-        });
-
-        peer.on('close', function() {
-            console.log('Peer Closed.');
-        });
-        peer.on('disconnected', function() {
-            console.log('Peer Disconnected.');
-        });
-        peer.on('error', function(err) {
-            console.log('Peer Error:', err);
-        });
+            peer.on('close', function() {
+                console.log('Peer Closed.');
+            });
+            peer.on('disconnected', function() {
+                console.log('Peer Disconnected.');
+                init_peer();
+            });
+            peer.on('error', function(err) {
+                console.log('Peer Error:', err);
+            });
+        }
 
         // make outgoing connection
         function connect2peer(id) {
             console.log('connecting to', id);
             var conn = peer.connect(id, peer_connect_options);
             init_connection(conn);
+        }
+
+        function reconnectAll() {
+            let participants = [];
+            for (const [key, value] of Object.entries(connections)) {
+                participants.push(value.conn.peer);
+                value.conn.close();
+                delete connections[key];
+            }
+            peer.destroy();
+            init_peer();
+            for(const id of participants) {
+                connect2peer(id);
+            }
         }
 
         function init_connection(conn) {
@@ -215,6 +230,7 @@
             });
             conn.on('close', function() {
                 console.log('Connection closed.');
+                delete connections[conn.peer];
             });
             conn.on('error', function(err) {
                 console.log('Connection Error:', err);
@@ -267,6 +283,7 @@
 
         // Send a message
         document.getElementById('send').addEventListener('click', function() {
+            var count = 0;
             if(Object.keys(connections).length > 0) {
                 var message = document.getElementById('message').value;
                 var msg_data = {
@@ -275,19 +292,22 @@
                 }
                 console.log("Sending message...");
                 for (const [key, value] of Object.entries(connections)) {
-                    value.conn.send(msg_data);
+                    if(value.conn.open) {
+                        value.conn.send(msg_data);
+                        count++;
+                    }
                 }
                 append_msg(msg_data, true);
                 console.log('Sent.')
                 document.getElementById('message').value = '';
             }
-            else {
-                console.log("No connection, unable to send.")
+            if(count == 0) {
+                console.log("No open connection, unable to send.")
             }
         });
 
         document.getElementById('message').addEventListener('keydown', function(e) {
-             /* Enter key is 13 */ 
+            /* Enter key is 13 */ 
             if(e.keyCode == 13) {
                 document.getElementById('send').click();
             }
@@ -311,6 +331,8 @@
 
         window.onload = function() {
             
+            init_peer()
+
             // do we have a destination ID to connect with?  check for URL parameter
             var urlParams = new URLSearchParams(window.location.search);
             var dst_id = urlParams.get('id');
