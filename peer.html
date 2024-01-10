@@ -81,6 +81,12 @@
                 save name in connections list
                 loading icon
                 display participants list
+
+                reconnecting..
+                    when to call peer.reconnect?
+                    when to destroy peer and create new one?
+                    when to use new uuid?
+                    when to remove connection from connections?
         */
 
         // Peer.js configuration - see https://peerjs.com/docs/#peer
@@ -142,8 +148,10 @@
         set_username(random_name());
 
         var connections = {};  // map ID to connection data
+        var dst_ids = []
         var src_id = null;
         var peer = null;
+        var interval = setInterval(function() { reconnect_peers(); }, 5000);
         
         function init_peer() {
             src_id = uuidv4();
@@ -157,56 +165,63 @@
 
                 // do we have a destination ID to connect with?  check for URL parameter
                 var urlParams = new URLSearchParams(window.location.search);
-                var dst_id = urlParams.get('id');
-                if(dst_id) {
+                if(urlParams.get('id')) {
+                    dst_ids.push(urlParams.get('id'));
+                }
+                for(const dst_id of dst_ids) {
                     console.log("Automatically connecting to:", dst_id);
                     connect2peer(dst_id);
                 }
+                dst_ids = [];
             });
 
             // handle any incomming connection
             peer.on('connection', function(conn) {
-                console.log('Connecting from', conn.peer);
+                logDbg('Connecting from: ' + conn.peer);
                 init_connection(conn);
             });
 
             peer.on('close', function() {
-                console.log('Peer Closed.');
+                logDbg('Peer Closed.');
             });
             peer.on('disconnected', function() {
-                console.log('Peer Disconnected.');
-                init_peer();
+                logDbg('Peer Disconnected.');
+                //reconnectAll();
+                peer.reconnect();
             });
             peer.on('error', function(err) {
-                console.log('Peer Error:', err);
+                logDbg('Peer Error: ' + err);
             });
         }
 
         // make outgoing connection
         function connect2peer(id) {
-            console.log('connecting to', id);
+            logDbg('connecting to:' + id);
             var conn = peer.connect(id, peer_connect_options);
             init_connection(conn);
         }
 
-        function reconnectAll() {
-            let participants = [];
+        /*function reconnectAll() {
             for (const [key, value] of Object.entries(connections)) {
-                participants.push(value.conn.peer);
+                dst_ids.push(value.conn.peer);
                 value.conn.close();
                 delete connections[key];
             }
             peer.destroy();
             init_peer();
-            for(const id of participants) {
-                connect2peer(id);
-            }
-        }
+        }*/
 
         function init_connection(conn) {
+            if(conn.peer in connections){
+                logDbg(`Updating existing connection with peer ${conn.peer}`);
+                connections[conn.peer].conn = conn;
+            } else {
+                logDbg(`Initializing new connection with peer ${conn.peer}`);
+                connections[conn.peer] = {conn:conn, username:conn.metadata.username, reconnect_retries:0, reconnect_needed:false};
+            }
             conn.on('open', function() {
                 // Connection is established, now we can send a message
-                console.log('Connection established.');
+                logDbg('Connection established.');
                 this.send("greetz!");
 
                 if(Object.keys(connections).length > 1) {
@@ -219,6 +234,8 @@
                     console.log(participants);
                     conn.send({participants:participants})
                 }
+                connections[this.peer].reconnect_needed = false;
+                connections[this.peer].reconnect_retries = 0;
             });
             conn.on('data', function(data) {
                 console.log('Received:', data);
@@ -227,15 +244,40 @@
                 } else if (data.participants) {
                     add_participants(data);
                 }
+                connections[this.peer].reconnect_needed = false;
+                connections[this.peer].reconnect_retries = 0;
             });
             conn.on('close', function() {
-                console.log('Connection closed.');
-                delete connections[conn.peer];
+                logDbg('Connection closed.');
+                connections[this.peer].reconnect_needed = true;
             });
             conn.on('error', function(err) {
-                console.log('Connection Error:', err);
+                logDbg('Connection Error: '+ err);
+                if(this.closed) {
+                    connections[this.peer].reconnect_needed = true;
+                }
             });
-            connections[conn.peer] = {conn:conn, username:conn.metadata.username};
+        }
+
+        function reconnect_peers() {
+            console.log('tick');
+            if(peer.disconnected) {
+                logDbg('Reconnecting with server')
+                peer.reconnect();
+            } else {
+                for (const [key, value] of Object.entries(connections)) {
+                    if(value.reconnect_needed) {
+                        if(value.reconnect_retries < 5) {
+                            value.reconnect_retries++;
+                            logDbg(`Attempt ${value.reconnect_retries} to reconnect with peer ${key}`);
+                            connect2peer(key);
+                        } else {
+                            logDbg(`Giving up on peer ${key}`);
+                            delete connections[key];
+                        }
+                    }
+                }
+            }            
         }
 
         function id_exists(id) {
@@ -257,6 +299,11 @@
                 }
             }
         }
+
+        function logDbg(message) {
+            console.log(message);
+            append_msg({name:'CONSOLE', msg:message}, false);
+        }
         
         function append_msg(msg_data, isyou) {
             name = msg_data.name;
@@ -268,6 +315,9 @@
                 if(isyou){
                     div.style.backgroundColor = '#ccf';
                     div.style.borderColor = '#bbe';
+                } else if (name == 'CONSOLE') {
+                    div.style.backgroundColor = '#ffc';
+                    div.style.borderColor = '#eeb';
                 } else {
                     div.style.backgroundColor = '#cfc';
                     div.style.borderColor = '#beb'
@@ -302,7 +352,7 @@
                 document.getElementById('message').value = '';
             }
             if(count == 0) {
-                console.log("No open connection, unable to send.")
+                logDbg("No open connection, unable to send.")
             }
         });
 
@@ -335,11 +385,14 @@
 
             // do we have a destination ID to connect with?  check for URL parameter
             var urlParams = new URLSearchParams(window.location.search);
-            var dst_id = urlParams.get('id');
-            if(dst_id) {
-                // change start button to say join
-                document.getElementById("start_btn").innerText = "Join"
+            if(urlParams.get('id')) {
+                dst_ids.push(urlParams.get('id'));
             }
+            for(const dst_id of dst_ids) {
+                // change start button to say join
+                document.getElementById("start_btn").innerText = "Join";
+            }
+            dst_ids = [];
 
             document.getElementById("connect_window").style.display = "block";
             document.getElementById("main_window").style.display = "none";
